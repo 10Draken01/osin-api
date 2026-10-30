@@ -1,191 +1,124 @@
 # 01. Stack tecnológico
 
-Este documento fija las tecnologías, versiones y convenciones técnicas del proyecto. Las versiones exactas las determina el BOM de Spring Boot al generar el proyecto en [start.spring.io](https://start.spring.io); lo marcado como "referencial" debe confirmarse ahí.
+Tecnologías, versiones y organización del backend `osinapi`.
 
 ## 1. Resumen
 
 | Capa | Tecnología |
 |---|---|
-| Frontend | Angular 19 + Angular Material 19, TypeScript 5.7, RxJS 7.8 |
-| Backend | Java 17, Spring Boot 4, Maven |
-| Persistencia | Spring Data JPA (Hibernate), Oracle (oficial) y H2 (desarrollo) |
-| Documentación API | SpringDoc OpenAPI (Swagger UI) |
-| Pruebas | JUnit 5 + Spring Boot Test (backend), Jasmine + Karma (frontend) |
-| Infraestructura local | Docker (WSL2 o Ubuntu) para Oracle |
+| Lenguaje | Java 17 (compila con `java.version=17`; funciona con JDK 17 o superior) |
+| Framework | Spring Boot 4.1.2 (Spring Framework 7) |
+| Build | Maven, con Maven Wrapper incluido (`mvnw`, `mvnw.cmd`) |
+| Persistencia | Spring Data JPA con Hibernate 7 |
+| Base de datos | Oracle Database Free 23ai en Docker |
+| Documentación API | SpringDoc OpenAPI 3.2.0 (Swagger UI) |
+| Pruebas | JUnit 5, Mockito, MockMvc y Spring Boot Test con H2 en memoria |
 
-## 2. Versiones
+## 2. Dependencias (`pom.xml`)
 
-| Componente | Versión | Observación |
+| Dependencia | Para qué se usa |
+|---|---|
+| `spring-boot-starter-webmvc` | Controladores REST con Tomcat embebido |
+| `spring-boot-starter-data-jpa` | Entidades, repositorios, transacciones y `@Version` |
+| `spring-boot-starter-validation` | Validaciones en los DTO (`@NotNull`, `@Positive`, `@Size`, ...) |
+| `springdoc-openapi-starter-webmvc-ui` | Swagger UI y especificación OpenAPI |
+| `ojdbc17` | Driver JDBC de Oracle |
+| `lombok` | Getters, builders y constructores. Configurado como procesador de anotaciones en `maven-compiler-plugin` |
+| `h2` y `spring-boot-h2console` | Base de datos en memoria para las pruebas automáticas (y opcional para desarrollo, ver `application.properties`) |
+| `spring-boot-starter-*-test` | JUnit 5, Mockito, MockMvc y soporte de pruebas de JPA y validación |
+
+## 3. Organización del código
+
+```
+src/main/java/com/lacomer/osinapi
+├── configuration/   OpenApiConfig (datos de Swagger), CorsConfig (acceso desde el frontend)
+├── controller/      CrudController (GET, GET por id, POST, PUT genéricos), ProductoController, PedidoController
+├── converters/      BooleanToNumberConverter: Boolean <-> NUMBER(1) para la columna ACTIVO
+├── docs/            ProblemaDoc: esquema del error que se muestra en Swagger
+├── dto/             Requests y responses de la API
+├── entities/        Producto, Pedido, PedidoDetalle (aquí están las reglas de negocio)
+├── enums/           EstadoPedido y sus transiciones permitidas
+├── exceptions/      Excepciones de negocio y GlobalExceptionHandler
+├── mapper/          Conversión entre entidades y DTO
+├── repositories/    Interfaces de Spring Data JPA
+├── services/        Casos de uso; cada método público es una transacción
+└── utils/           Validaciones de texto y números reutilizables
+```
+
+Responsabilidad de cada capa:
+
+| Capa | Hace | No hace |
 |---|---|---|
-| JDK | 17 (LTS) | Línea base de Spring Boot 4 |
-| Maven | 3.9+ | Usar el wrapper `mvnw` incluido en el proyecto |
-| Spring Boot | 4.0.x | Basado en Spring Framework 7 (referencial) |
-| Hibernate ORM | 7.x | Lo trae `spring-boot-starter-data-jpa`; detecta el dialecto de Oracle solo |
-| Servidor embebido | Tomcat (el de Spring Boot 4) | Lo trae el starter web |
-| SpringDoc OpenAPI | 3.x | Es la línea compatible con Spring Boot 4 (confirmar en Maven Central) |
-| Lombok | gestionada por Spring Boot | |
-| Oracle JDBC | `ojdbc11` gestionada por Spring Boot | Es lo que agrega Initializr con "Oracle Driver" |
-| H2 | 2.x gestionada por Spring Boot | |
-| Node.js | 20 LTS (>= 20.11.1) o 22 LTS | Requisito de Angular 19 |
-| Angular CLI | 19.x | |
-| Oracle Database Free | `free:latest-lite` | Imagen oficial de Oracle Container Registry |
+| `controller` | Recibe la petición, valida el formato (`@Valid`, `@Positive`), llama al servicio y devuelve el código HTTP | Reglas de negocio |
+| `service` | Busca las entidades, llama a sus reglas y guarda. Define la transacción (`@Transactional`) | Cálculos de negocio |
+| `entities` | Reglas: validar datos del producto, calcular subtotal y total, cambiar de estado, descontar y reponer existencias | Acceso a base de datos |
+| `repositories` | Consultas a la base de datos | Lógica |
 
-## 3. Backend
+## 4. Transacciones y concurrencia
 
-### 3.1 Dependencias elegidas
+Hay dos problemas distintos y cada uno lo resuelve una herramienta distinta. Ninguna requiere código adicional.
 
-| Dependencia (nombre en Initializr) | Para qué se usa en el proyecto |
+### 4.1 Atomicidad: `@Transactional`
+
+`PedidoServiceImpl` y `ProductoServiceImpl` llevan `@Transactional` a nivel de clase. Cada método público corre en una sola transacción de base de datos:
+
+- Si el método termina bien, Spring hace `COMMIT` de todos los cambios (pedido y existencias).
+- Si se lanza una excepción (por ejemplo `ConflictoException` por stock insuficiente), Spring hace `ROLLBACK` y la base de datos queda exactamente como estaba.
+
+Así un pedido nunca queda registrado a medias ni con el inventario descontado parcialmente.
+
+### 4.2 Peticiones simultáneas: `@Version` (bloqueo optimista)
+
+`@Transactional` no evita que dos peticiones lean el mismo dato al mismo tiempo. Ejemplo: hay 5 piezas y dos pedidos de 4 se confirman a la vez; los dos leen 5, los dos validan y los dos descuentan.
+
+Para eso `Producto` y `Pedido` tienen un campo `@Version` (columna `VERSION_LOCK`). Hibernate lo maneja solo:
+
+1. Al leer la fila guarda su versión (por ejemplo 3).
+2. Al guardar ejecuta `UPDATE ... SET ..., VERSION_LOCK = 4 WHERE ID = ? AND VERSION_LOCK = 3`.
+3. Si otra transacción ya cambió la fila, la versión ya no es 3, el `UPDATE` no afecta ninguna fila y Hibernate lanza `ObjectOptimisticLockingFailureException`.
+4. Spring hace rollback y `GlobalExceptionHandler` responde **409** con el mensaje "El registro fue modificado por otro usuario. Recarga la informacion e intenta de nuevo."
+
+Casos que cubre:
+
+| Situación | Resultado |
 |---|---|
-| Spring Web | Controladores REST (Spring MVC) con Tomcat embebido |
-| Spring Data JPA | Entidades, repositorios y bloqueos (`@Lock`, `@Version`) |
-| Validation | Bean Validation (`@NotNull`, `@Positive`, `@Size`, ...) en DTOs |
-| Lombok | Reducir getters, setters y constructores |
-| SpringDoc OpenAPI Web | Swagger UI y especificación OpenAPI |
-| Oracle Driver | Conexión al motor oficial |
-| H2 Database | Perfil de desarrollo sin contenedor |
+| Dos confirmaciones al mismo tiempo de pedidos con el mismo producto | La primera descuenta; la segunda recibe 409 y no descuenta nada |
+| Dos cancelaciones simultáneas del mismo pedido (doble clic) | La primera repone el inventario; la segunda recibe 409. El inventario se repone una sola vez |
+| Cancelar y completar el mismo pedido al mismo tiempo | Solo una de las dos se aplica |
 
-Además, de forma estándar: `spring-boot-starter-test` (y los módulos de prueba que genere Initializr).
+## 5. Configuración
 
-### 3.2 Fragmento de `pom.xml` (referencial)
+`src/main/resources/application.properties` usa variables de entorno con valor por defecto:
 
-En Spring Boot 4 los starters se modularizaron y cambiaron algunos nombres (por ejemplo, el starter web ahora se llama `spring-boot-starter-webmvc`). Initializr genera los nombres correctos; este fragmento solo orienta:
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `PORT` | `8080` | Puerto HTTP |
+| `DB_URL` | `jdbc:oracle:thin:@//localhost:1521/FREEPDB1` | URL de Oracle |
+| `DB_USER` | `osin` | Usuario dueño del esquema |
+| `DB_PASS` | `osin` | Contraseña de ejemplo |
+| `CORS_ORIGENES` | `http://localhost:4200` | Orígenes que pueden llamar a la API desde el navegador |
 
-```xml
-<parent>
-  <groupId>org.springframework.boot</groupId>
-  <artifactId>spring-boot-starter-parent</artifactId>
-  <version>4.0.x</version> <!-- usar la versión que entregue Initializr -->
-</parent>
+Si existe un archivo `.env` en la raíz del proyecto, Spring Boot lo lee al arrancar (`spring.config.import=optional:file:.env[.properties]`). `.env` está en `.gitignore`; en el repositorio solo va `.env.example`.
 
-<properties>
-  <java.version>17</java.version>
-</properties>
+Otras propiedades relevantes:
 
-<dependencies>
-  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc</artifactId></dependency>
-  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
-  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
-  <dependency><groupId>org.springdoc</groupId><artifactId>springdoc-openapi-starter-webmvc-ui</artifactId><version>3.x</version></dependency>
-  <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
-  <dependency><groupId>com.oracle.database.jdbc</groupId><artifactId>ojdbc11</artifactId><scope>runtime</scope></dependency>
-  <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>runtime</scope></dependency>
-  <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
-</dependencies>
-```
+| Propiedad | Valor | Motivo |
+|---|---|---|
+| `spring.jpa.hibernate.ddl-auto` | `validate` | El esquema lo crean los scripts SQL. Hibernate solo comprueba al arrancar que tablas y columnas coincidan con las entidades |
+| `spring.jpa.open-in-view` | `false` | Las consultas solo ocurren dentro de los servicios |
+| `hibernate.default_batch_fetch_size` | `50` | Al listar pedidos carga las partidas de varios pedidos en una sola consulta |
+| `spring.data.web.pageable.serialization-mode` | `via-dto` | Formato estable del JSON paginado (`content` + `page`) |
 
-### 3.3 Organización de paquetes
+| Ambiente | Base de datos | Quién crea las tablas |
+|---|---|---|
+| Ejecución normal | Oracle | Scripts de `database/oracle` |
+| Pruebas (`./mvnw test`, perfil `test`) | H2 en memoria con `MODE=Oracle` | Hibernate (`create-drop`) y `src/test/resources/data.sql` para la secuencia del folio |
 
-```
-com.<organizacion>.pedidos
-├── config/          # OpenAPI, CORS
-├── controller/      # ProductoController, PedidoController
-├── service/         # ProductoService, PedidoService (reglas de negocio y @Transactional)
-├── repository/      # ProductoRepository, PedidoRepository
-├── domain/          # Producto, Pedido, PedidoDetalle, EstadoPedido (enum)
-├── dto/             # request/response; los importes viven solo en las respuestas
-└── exception/       # excepciones de negocio + @RestControllerAdvice
-```
+## 6. Puertos y rutas
 
-Regla: los controladores no contienen lógica; toda regla de negocio y toda transacción viven en `service`.
-
-### 3.4 Perfiles de base de datos
-
-| Perfil | Base de datos | Esquema | Cuándo usarlo |
-|---|---|---|---|
-| `h2` (por defecto) | H2 en archivo `./data/pedidos` con `MODE=Oracle` | Hibernate `ddl-auto=update` | Desarrollo rápido, sin contenedor |
-| `oracle` | Oracle en Docker | Scripts SQL, Hibernate `ddl-auto=validate` | Pruebas de escenarios, demo y entrega |
-
-Se usa H2 **en archivo y no en memoria** para que los datos sobrevivan al reinicio (escenario F).
-
-`application-oracle.properties` (ejemplo):
-
-```properties
-spring.datasource.url=${DB_URL:jdbc:oracle:thin:@//localhost:1521/FREEPDB1}
-spring.datasource.username=${DB_USER:pedidos}
-spring.datasource.password=${DB_PASSWORD}
-spring.jpa.hibernate.ddl-auto=validate
-spring.jpa.open-in-view=false
-```
-
-`application-h2.properties` (ejemplo):
-
-```properties
-spring.datasource.url=jdbc:h2:file:./data/pedidos;MODE=Oracle;DB_CLOSE_ON_EXIT=FALSE
-spring.datasource.username=sa
-spring.datasource.password=
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.open-in-view=false
-```
-
-Nota: en Spring Boot 4 la autoconfiguración quedó repartida en módulos; si la consola web de H2 no aparece, hay que agregar la dependencia que indique la guía de migración de Spring Boot 4.
-
-### 3.5 Concurrencia y transacciones
-
-- Confirmar y cancelar se ejecutan en un método `@Transactional` del servicio.
-- Los productos de un pedido se bloquean con `@Lock(PESSIMISTIC_WRITE)` (`SELECT ... FOR UPDATE`), **ordenados por `id`** para evitar interbloqueos entre dos pedidos que comparten productos.
-- `@Version` en `Producto` como segunda defensa (bloqueo optimista).
-- La cancelación comprueba el estado dentro de la misma transacción: si ya está `CANCELADO` responde 409 y no toca el inventario.
-
-### 3.6 Puertos y rutas
-
-| Servicio | Valor |
+| Servicio | URL |
 |---|---|
-| Backend | `http://localhost:8080` |
+| API | `http://localhost:8080/api` |
 | Swagger UI | `http://localhost:8080/swagger-ui.html` |
 | OpenAPI JSON | `http://localhost:8080/v3/api-docs` |
-| Frontend | `http://localhost:4200` |
-| Oracle | `localhost:1521` |
-
-## 4. Frontend
-
-### 4.1 Dependencias (según el `package.json` definido)
-
-| Paquete | Versión | Uso |
-|---|---|---|
-| `@angular/core`, `common`, `compiler`, `platform-browser`, `platform-browser-dynamic` | ^19.1.0 | Núcleo |
-| `@angular/router` | ^19.1.0 | Navegación entre catálogo, pedidos y detalle |
-| `@angular/forms` | ^19.1.0 | Reactive Forms y `FormArray` para las partidas |
-| `@angular/material` y `@angular/cdk` | ^19.2.19 | Tablas, formularios, diálogos, snackbars |
-| `@angular/animations` | ^19.1.0 | Requerido por Material |
-| `rxjs` | ~7.8.0 | Flujos HTTP |
-| `zone.js`, `tslib` | ~0.15.0, ^2.3.0 | Soporte de Angular |
-| `typescript` | ~5.7.2 | Lenguaje |
-| `@angular/cli`, `@angular-devkit/build-angular`, `@angular/compiler-cli` | ^19.x | Compilación |
-| `karma`, `karma-chrome-launcher`, `karma-coverage`, `karma-jasmine`, `karma-jasmine-html-reporter`, `jasmine-core`, `@types/jasmine` | ver `package.json` | Pruebas unitarias |
-
-### 4.2 Organización
-
-```
-src/app
-├── core/        # servicios HTTP, interceptor de errores, modelos
-├── features/
-│   ├── productos/   # catálogo y alta/edición
-│   └── pedidos/     # formulario, listado, detalle
-└── shared/      # componentes y pipes comunes
-```
-
-### 4.3 Convenciones
-
-- Componentes standalone.
-- Formularios reactivos con validaciones (cantidad entera mayor a 0, producto obligatorio).
-- La URL del API sale de `environment.ts`; en desarrollo se usa `proxy.conf.json` hacia `http://localhost:8080` para evitar problemas de CORS.
-- Un interceptor HTTP traduce los errores del backend a mensajes con `MatSnackBar`; nunca se muestran trazas técnicas.
-- El resumen de importes del formulario es **preliminar**; el total definitivo lo devuelve el backend.
-
-## 5. Calidad y pruebas
-
-| Nivel | Herramienta | Qué cubre |
-|---|---|---|
-| Unitarias backend | JUnit 5 + Mockito | Reglas de estados, cálculo de importes |
-| Integración backend | Spring Boot Test + H2 | Stock insuficiente sin cambios parciales, doble cancelación, transición inválida |
-| Unitarias frontend | Jasmine + Karma | Servicios y validaciones de formularios |
-
-## 6. Riesgos y decisiones a vigilar
-
-| Riesgo | Mitigación |
-|---|---|
-| El enunciado acepta **MySQL u Oracle**; H2 no está entre los motores aceptados | H2 se documenta solo como perfil de desarrollo. Los escenarios A–F, el video y los scripts de la entrega se hacen contra Oracle |
-| Spring Boot 4 es reciente: cambian nombres de starters y módulos | Generar el proyecto con Initializr y no copiar coordenadas de memoria |
-| El comportamiento de bloqueos puede diferir entre H2 y Oracle | Validar concurrencia y escenario B contra Oracle |
-| Los scripts SQL se ejecutan "tal cual" en la evaluación | Probarlos desde cero en un contenedor limpio, en el orden documentado |
-| Contraseñas en el repositorio | Solo variables de entorno y valores de ejemplo no sensibles |
+| Oracle | `localhost:1521`, servicio `FREEPDB1` |

@@ -1,211 +1,193 @@
 # 03. Entidades, tablas y normalización
 
-Este documento define el modelo de datos **antes** de escribir los scripts de Oracle. Primero se parte de la información tal como aparece en un pedido y se normaliza paso a paso hasta la **tercera forma normal (3FN)**; después se presentan las tablas finales con sus tipos y restricciones.
+Modelo de datos del proyecto: cómo se llegó a las tablas (normalización hasta 3FN), el diccionario de datos con los nombres reales de Oracle y la relación con las entidades JPA.
 
 ## 1. Normalización
 
-### 1.1 Punto de partida: datos sin normalizar (0FN)
+### 1.1 Punto de partida (0FN)
 
-Una "hoja de pedido" contiene, en un solo bloque, datos del pedido, del producto y de cada partida:
+Una "hoja de pedido" mezcla datos del pedido, de los productos y de cada partida:
 
 ```
 PEDIDO_0FN ( folio, fecha_creacion, estado, total,
              { producto_id, nombre, descripcion, precio, existencia, cantidad, subtotal } )
-                ^ grupo repetido: uno por cada producto del pedido
+               ^ grupo repetido: uno por cada producto del pedido
 ```
-
-Problemas: grupo repetido, datos del producto copiados en cada pedido y totales que dependen de otros datos.
 
 ### 1.2 Primera forma normal (1FN)
 
-**Regla:** todos los atributos son atómicos, no hay grupos repetidos y la tabla tiene una clave primaria.
+**Regla:** valores atómicos, sin grupos repetidos y con clave primaria.
 
-**Aplicación:**
-- El grupo repetido se convierte en filas: una fila por cada combinación pedido-producto.
-- Cada columna guarda un solo valor: `folio` es un código completo (`PED-000001`), `fecha_creacion` es una sola fecha y hora, `descripcion` es un texto único.
-- Clave primaria compuesta: `(folio, producto_id)`.
+El grupo repetido se convierte en una fila por cada pareja pedido-producto, con clave `(folio, producto_id)`:
 
 ```
-PEDIDO_PARTIDA_1FN ( folio, producto_id,
-                     fecha_creacion, estado, total,
-                     nombre, descripcion, precio, existencia,
-                     cantidad, subtotal )
-PK: (folio, producto_id)
+PEDIDO_PARTIDA_1FN ( folio, producto_id, fecha_creacion, estado, total,
+                     nombre, descripcion, precio, existencia, cantidad, subtotal )
 ```
 
-Aún quedan anomalías:
+Problemas que quedan:
 
 | Anomalía | Ejemplo |
 |---|---|
-| Inserción | No se puede registrar un producto nuevo hasta que exista un pedido que lo incluya |
-| Actualización | Cambiar el nombre de un producto obliga a modificar todas las filas de todos sus pedidos |
-| Eliminación | Eliminar el único pedido de un producto borra también la información del producto |
+| Inserción | No se puede registrar un producto sin un pedido que lo incluya |
+| Actualización | Cambiar el nombre de un producto obliga a cambiar todas sus filas |
+| Eliminación | Borrar el único pedido de un producto borra también el producto |
 
 ### 1.3 Segunda forma normal (2FN)
 
-**Regla:** estar en 1FN y que **ningún atributo que no es clave dependa solo de una parte de la clave compuesta** (sin dependencias parciales).
+**Regla:** 1FN y ningún atributo no clave depende solo de una parte de la clave.
 
-**Dependencias funcionales detectadas:**
-
-| Determinante | Determina | Tipo respecto a `(folio, producto_id)` |
+| Determinante | Determina | Dependencia |
 |---|---|---|
-| `folio` | `fecha_creacion`, `estado`, `total` | Parcial (solo depende de una parte de la clave) |
+| `folio` | `fecha_creacion`, `estado`, `total` | Parcial |
 | `producto_id` | `nombre`, `descripcion`, `precio`, `existencia` | Parcial |
-| `(folio, producto_id)` | `cantidad`, `precio` pactado, `subtotal` | Completa |
+| `(folio, producto_id)` | `cantidad`, precio al momento del pedido, `subtotal` | Completa |
 
-**Aplicación:** cada grupo de atributos pasa a su propia relación.
+Cada grupo pasa a su propia tabla:
 
 ```
-PEDIDO         ( folio PK, fecha_creacion, estado, total )
-PRODUCTO       ( producto_id PK, nombre, descripcion, precio, existencia )
-PEDIDO_DETALLE ( folio FK, producto_id FK, cantidad, precio_unitario, subtotal )
-               PK: (folio, producto_id)
+PEDIDO         ( folio, fecha_creacion, estado, total )
+PRODUCTO       ( producto_id, nombre, descripcion, precio, existencia )
+PEDIDO_DETALLE ( folio, producto_id, cantidad, precio_unitario, subtotal )
 ```
-
-Esto elimina las anomalías de 1FN: el producto existe sin pedidos, se renombra en un solo lugar y borrar un pedido no pierde el producto.
 
 ### 1.4 Tercera forma normal (3FN)
 
-**Regla:** estar en 2FN y que **ningún atributo que no es clave dependa de otro atributo que tampoco es clave** (sin dependencias transitivas).
+**Regla:** 2FN y ningún atributo no clave depende de otro atributo no clave.
 
-**Revisión relación por relación:**
-
-| Relación | Dependencia transitiva detectada | Solución |
+| Tabla | Dependencia transitiva | Decisión |
 |---|---|---|
-| `PEDIDO_DETALLE` | `subtotal = cantidad × precio_unitario`. `subtotal` depende de dos atributos no clave | No se almacena como dato: es una **columna virtual** de Oracle calculada a partir de `cantidad` y `precio_unitario` |
-| `PEDIDO` | `total = Σ subtotales de sus partidas`. `total` depende de datos de otra tabla, no de la clave del pedido | No se almacena: se obtiene con `SUM` mediante la vista `vw_pedido_resumen` (y el backend lo calcula al responder) |
-| `PEDIDO` | Si se guardara una `descripcion_estado`, dependería de `estado` y no de la clave | No se agrega. `estado` es un código atómico con dominio fijo (`CHECK`), sin atributos propios |
-| `PRODUCTO` | Ningún atributo no clave determina a otro | Cumple |
+| `PEDIDO_DETALLE` | `subtotal = cantidad × precio_unitario` | **No se guarda.** El backend lo calcula en `PedidoDetalle.getSubtotal()` |
+| `PEDIDO` | `total = suma de los subtotales` (depende de otra tabla) | **No se guarda.** El backend lo calcula en `Pedido.calcularTotal()` |
+| `PEDIDO` | Una `descripcion_estado` dependería de `estado` | No se agrega; `estado` es un código con dominio fijo (`CHECK`) |
+| `PRODUCTO` | Ninguna | Cumple |
 
-**Decisión sobre `precio_unitario` en `PEDIDO_DETALLE`:** no es una dependencia transitiva ni redundancia. Son dos hechos distintos: `PRODUCTO.precio_unitario` es el precio **actual** del catálogo y `PEDIDO_DETALLE.precio_unitario` es el precio **pactado en ese pedido**. Si se eliminara, cambiar el precio del catálogo alteraría el importe de pedidos ya registrados.
+Guardar subtotal o total sería redundante: si alguien cambiara la cantidad o el precio sin recalcularlos, la base de datos quedaría con importes que no cuadran. Además el enunciado pide que los importes los calcule el backend.
 
-**Decisión sobre `existencia`:** se guarda como saldo actual en `PRODUCTO` (depende únicamente de la clave). Derivarla de una tabla de movimientos sería más puro, pero un kardex está fuera del alcance (supuesto S-09).
+**`precio_unitario` en el detalle no es redundante.** `PRODUCTOS.PRECIO_UNITARIO` es el precio actual del catálogo; `PEDIDOS_DETALLES.PRECIO_UNITARIO` es el precio con el que se hizo el pedido. Sin él, cambiar el precio del catálogo cambiaría el importe de pedidos ya registrados.
 
-### 1.5 Verificación final (BCNF como comprobación adicional)
+**`existencia`** se guarda como saldo actual del producto (depende solo de su clave). Calcularla desde un historial de movimientos está fuera del alcance.
+
+### 1.5 Comprobación (BCNF)
 
 | Tabla | Claves candidatas | ¿Todo determinante es clave candidata? |
 |---|---|---|
-| `producto` | `id`, `nombre` | Sí |
-| `pedido` | `id`, `folio` | Sí |
-| `pedido_detalle` | `id`, `(pedido_id, producto_id)` | Sí |
-
-### 1.6 Resumen de cumplimiento
-
-| Forma normal | Cumple | Evidencia |
-|---|---|---|
-| 1FN | Sí | Sin grupos repetidos; columnas atómicas; toda tabla con clave primaria (`id`) |
-| 2FN | Sí | Datos de pedido, producto y partida separados; atributos de partida dependen de la clave completa del detalle |
-| 3FN | Sí | `subtotal` y `total` no se almacenan; `estado` sin atributos dependientes; sin dependencias entre atributos no clave |
+| `PRODUCTOS` | `ID`, `NOMBRE` | Sí |
+| `PEDIDOS` | `ID`, `FOLIO` | Sí |
+| `PEDIDOS_DETALLES` | `ID`, `(PEDIDO_ID, PRODUCTO_ID)` | Sí |
 
 ## 2. Modelo entidad-relación
 
 ```mermaid
 erDiagram
-    PRODUCTO ||--o{ PEDIDO_DETALLE : "aparece en"
-    PEDIDO   ||--|{ PEDIDO_DETALLE : "contiene"
+    PRODUCTOS ||--o{ PEDIDOS_DETALLES : "aparece en"
+    PEDIDOS   ||--|{ PEDIDOS_DETALLES : "contiene"
 
-    PRODUCTO {
-        NUMBER id PK
-        VARCHAR2 nombre UK
-        VARCHAR2 descripcion
-        NUMBER precio_unitario
-        NUMBER existencia
-        NUMBER activo
-        NUMBER version_lock
+    PRODUCTOS {
+        NUMBER ID PK
+        VARCHAR2 NOMBRE UK
+        VARCHAR2 DESCRIPCION
+        NUMBER PRECIO_UNITARIO
+        NUMBER EXISTENCIAS
+        NUMBER ACTIVO
+        NUMBER VERSION_LOCK
     }
-    PEDIDO {
-        NUMBER id PK
-        VARCHAR2 folio UK
-        VARCHAR2 estado
-        TIMESTAMP fecha_creacion
-        TIMESTAMP fecha_actualizacion
-        TIMESTAMP fecha_cancelacion
+    PEDIDOS {
+        NUMBER ID PK
+        VARCHAR2 FOLIO UK
+        VARCHAR2 ESTADO
+        TIMESTAMP FECHA_CREACION
+        TIMESTAMP FECHA_ACTUALIZACION
+        TIMESTAMP FECHA_CANCELACION
+        NUMBER VERSION_LOCK
     }
-    PEDIDO_DETALLE {
-        NUMBER id PK
-        NUMBER pedido_id FK
-        NUMBER producto_id FK
-        NUMBER cantidad
-        NUMBER precio_unitario
-        NUMBER subtotal "virtual"
+    PEDIDOS_DETALLES {
+        NUMBER ID PK
+        NUMBER PEDIDO_ID FK
+        NUMBER PRODUCTO_ID FK
+        NUMBER CANTIDAD
+        NUMBER PRECIO_UNITARIO
     }
 ```
 
 | Relación | Cardinalidad | Regla |
 |---|---|---|
-| `pedido` → `pedido_detalle` | 1 a N (mínimo 1 partida) | Un pedido tiene una o más partidas; cada partida pertenece a un solo pedido |
-| `producto` → `pedido_detalle` | 1 a N (mínimo 0) | Un producto puede estar en muchas partidas; un producto nuevo puede no estar en ninguna |
-| `pedido_detalle` | `UNIQUE (pedido_id, producto_id)` | Un producto aparece una sola vez por pedido |
+| `PEDIDOS` → `PEDIDOS_DETALLES` | 1 a N (mínimo 1) | Un pedido tiene una o más partidas; la API no permite crear pedidos vacíos |
+| `PRODUCTOS` → `PEDIDOS_DETALLES` | 1 a N (mínimo 0) | Un producto puede estar en muchas partidas o en ninguna |
+| `PEDIDOS_DETALLES` | `UNIQUE (PEDIDO_ID, PRODUCTO_ID)` | Un producto aparece una sola vez por pedido |
 
 ## 3. Diccionario de datos
 
-Convención: nombres en minúsculas con guion bajo; tipos de Oracle. "Nulo" indica si la columna acepta `NULL`.
+Script: `database/oracle/01_schema.sql`. Usuario dueño: `OSIN`.
 
-Nota sobre Oracle: una cadena vacía (`''`) se almacena como `NULL`. Por eso `descripcion` es opcional y no se guarda vacía.
+Oracle guarda una cadena vacía (`''`) como `NULL`; por eso una descripción vacía se guarda como `NULL`.
 
-### 3.1 Tabla `producto`
+### 3.1 `PRODUCTOS`
 
-| Columna | Tipo Oracle | Nulo | Único | Valor por defecto | Restricción | Descripción |
-|---|---|---|---|---|---|---|
-| `id` | `NUMBER(19)` | No | PK | `IDENTITY` (generado) | `pk_producto` | Identificador del producto |
-| `nombre` | `VARCHAR2(120 CHAR)` | No | Sí (`uq_producto_nombre`) | | | Nombre del producto |
-| `descripcion` | `VARCHAR2(500 CHAR)` | Sí | No | | | Descripción opcional |
-| `precio_unitario` | `NUMBER(12,2)` | No | No | | `CHECK (precio_unitario > 0)` | Precio vigente del catálogo |
-| `existencia` | `NUMBER(10)` | No | No | `0` | `CHECK (existencia >= 0)` | Unidades disponibles |
-| `activo` | `NUMBER(1)` | No | No | `1` | `CHECK (activo IN (0,1))` | Baja lógica: 1 activo, 0 inactivo |
-| `version_lock` | `NUMBER(19)` | No | No | `0` | | Control de concurrencia optimista (`@Version`) |
+| Columna | Tipo | Nulo | Por defecto | Restricción | Descripción |
+|---|---|---|---|---|---|
+| `ID` | `NUMBER(19)` | No | `IDENTITY` | `PK_PRODUCTOS` | Identificador |
+| `NOMBRE` | `VARCHAR2(120 CHAR)` | No | | `UQ_PRODUCTOS_NOMBRE` | Nombre único |
+| `DESCRIPCION` | `VARCHAR2(500 CHAR)` | Sí | | | Descripción opcional |
+| `PRECIO_UNITARIO` | `NUMBER(12,2)` | No | | `CK_PRODUCTOS_PRECIO` (`> 0`) | Precio actual |
+| `EXISTENCIAS` | `NUMBER(10)` | No | `0` | `CK_PRODUCTOS_EXISTENCIAS` (`>= 0`) | Piezas disponibles |
+| `ACTIVO` | `NUMBER(1)` | No | `1` | `CK_PRODUCTOS_ACTIVO` (`0` o `1`) | Baja lógica |
+| `VERSION_LOCK` | `NUMBER(19)` | No | `0` | | Versión para el bloqueo optimista (`@Version`) |
 
-### 3.2 Tabla `pedido`
+### 3.2 `PEDIDOS`
 
-| Columna | Tipo Oracle | Nulo | Único | Valor por defecto | Restricción | Descripción |
-|---|---|---|---|---|---|---|
-| `id` | `NUMBER(19)` | No | PK | `IDENTITY` (generado) | `pk_pedido` | Identificador interno |
-| `folio` | `VARCHAR2(30 CHAR)` | No | Sí (`uq_pedido_folio`) | | | Folio visible (`PED-000001`), generado con la secuencia `seq_pedido_folio` |
-| `estado` | `VARCHAR2(15 CHAR)` | No | No | `'BORRADOR'` | `CHECK (estado IN ('BORRADOR','CONFIRMADO','CANCELADO'))` | Estado del ciclo de vida |
-| `fecha_creacion` | `TIMESTAMP` | No | No | `SYSTIMESTAMP` | | Fecha y hora de creación |
-| `fecha_actualizacion` | `TIMESTAMP` | Sí | No | | | Última confirmación o cancelación |
-| `fecha_cancelacion` | `TIMESTAMP` | Sí | No | | Ver coherencia abajo | Momento de la cancelación |
+| Columna | Tipo | Nulo | Por defecto | Restricción | Descripción |
+|---|---|---|---|---|---|
+| `ID` | `NUMBER(19)` | No | `IDENTITY` | `PK_PEDIDOS` | Identificador interno |
+| `FOLIO` | `VARCHAR2(30 CHAR)` | No | | `UQ_PEDIDOS_FOLIO` | Folio visible `PED-000001`, generado con `SEQ_PEDIDOS_FOLIO` |
+| `ESTADO` | `VARCHAR2(20 CHAR)` | No | `'BORRADOR'` | `CK_PEDIDOS_ESTADO` | `BORRADOR`, `CONFIRMADO`, `COMPLETADO` o `CANCELADO` |
+| `FECHA_CREACION` | `TIMESTAMP` | No | `SYSTIMESTAMP` | | Momento de creación |
+| `FECHA_ACTUALIZACION` | `TIMESTAMP` | No | `SYSTIMESTAMP` | | Se actualiza en cada cambio de estado |
+| `FECHA_CANCELACION` | `TIMESTAMP` | Sí | | `CK_PEDIDOS_CANCELACION` | Obligatoria si el estado es `CANCELADO` y nula en cualquier otro |
+| `VERSION_LOCK` | `NUMBER(19)` | No | `0` | | Versión para el bloqueo optimista (`@Version`) |
 
-Restricción de coherencia (`ck_pedido_cancelacion`): `fecha_cancelacion` es obligatoria si el estado es `CANCELADO` y debe ser nula en cualquier otro estado.
+### 3.3 `PEDIDOS_DETALLES`
 
-### 3.3 Tabla `pedido_detalle`
+| Columna | Tipo | Nulo | Restricción | Descripción |
+|---|---|---|---|---|
+| `ID` | `NUMBER(19)` | No | `PK_PEDIDOS_DETALLES` | Identificador de la partida |
+| `PEDIDO_ID` | `NUMBER(19)` | No | `FK_PEDIDOS_DETALLES_PEDIDO` → `PEDIDOS(ID)` | Pedido |
+| `PRODUCTO_ID` | `NUMBER(19)` | No | `FK_PEDIDOS_DETALLES_PRODUCTO` → `PRODUCTOS(ID)` | Producto |
+| `CANTIDAD` | `NUMBER(10)` | No | `CK_PEDIDOS_DETALLES_CANTIDAD` (`> 0`) | Piezas solicitadas |
+| `PRECIO_UNITARIO` | `NUMBER(12,2)` | No | `CK_PEDIDOS_DETALLES_PRECIO` (`> 0`) | Precio al crear el pedido |
 
-| Columna | Tipo Oracle | Nulo | Único | Valor por defecto | Restricción | Descripción |
-|---|---|---|---|---|---|---|
-| `id` | `NUMBER(19)` | No | PK | `IDENTITY` (generado) | `pk_pedido_detalle` | Identificador de la partida |
-| `pedido_id` | `NUMBER(19)` | No | Parte de `uq_detalle_pedido_producto` | | FK → `pedido(id)` | Pedido al que pertenece |
-| `producto_id` | `NUMBER(19)` | No | Parte de `uq_detalle_pedido_producto` | | FK → `producto(id)` | Producto solicitado |
-| `cantidad` | `NUMBER(10)` | No | No | | `CHECK (cantidad > 0)` | Unidades solicitadas |
-| `precio_unitario` | `NUMBER(12,2)` | No | No | | `CHECK (precio_unitario > 0)` | Precio pactado al crear el pedido |
-| `subtotal` | `NUMBER(14,2)` | (calculada) | No | `cantidad * precio_unitario` | Columna `VIRTUAL` | No se inserta ni se actualiza; la calcula Oracle |
+`UQ_PEDIDOS_DETALLES_PEDIDO_PRODUCTO` sobre `(PEDIDO_ID, PRODUCTO_ID)`.
 
-### 3.4 Objetos adicionales
+### 3.4 Otros objetos
 
 | Objeto | Tipo | Propósito |
 |---|---|---|
-| `seq_pedido_folio` | Secuencia (`START WITH 4` por los 3 pedidos de ejemplo) | Genera el número del folio |
-| `vw_pedido_resumen` | Vista | Pedido con `total` y número de partidas calculados con `SUM`/`COUNT` |
-| `ix_detalle_producto` | Índice sobre `pedido_detalle(producto_id)` | Acelera consultas por producto y la validación de la FK |
-| `ix_pedido_estado` | Índice sobre `pedido(estado)` | Filtro del listado por estado |
+| `SEQ_PEDIDOS_FOLIO` | Secuencia (`START WITH 4`) | Número del folio. Empieza en 4 porque `02_data.sql` inserta `PED-000001` a `PED-000003` |
+| `IX_PEDIDOS_ESTADO` | Índice | Filtro del listado por estado |
+| `IX_PEDIDOS_DETALLES_PRODUCTO` | Índice | Búsquedas por producto y validación de la FK |
+| `VW_PEDIDO_RESUMEN` | Vista | Folio, estado, total y número de partidas, para revisar los datos desde SQL Developer. La API no la usa |
 
-La unicidad de `pedido(folio)` y de `pedido_detalle(pedido_id, producto_id)` ya genera sus propios índices; `pedido_id` queda cubierto por el índice único compuesto.
+Los `UNIQUE` de `FOLIO` y de `(PEDIDO_ID, PRODUCTO_ID)` crean su propio índice.
 
 ## 4. Reglas de integridad
 
-| Regla | Dónde se garantiza |
-|---|---|
-| Precio mayor a 0, existencia no negativa, cantidad mayor a 0 | `CHECK` en base de datos y validación en backend y frontend |
-| Folio único | `UNIQUE (folio)` + secuencia |
-| Estados válidos | `CHECK` en base de datos y enum en Java |
-| Transiciones válidas | Servicio de pedidos (la base de datos solo valida el dominio y la coherencia de `fecha_cancelacion`) |
-| No existen partidas huérfanas | Claves foráneas sin `ON DELETE CASCADE`; los pedidos no se borran, se cancelan |
-| Un producto una vez por pedido | `UNIQUE (pedido_id, producto_id)` |
-| Inventario nunca negativo | `CHECK (existencia >= 0)` como última defensa, además de la validación y el bloqueo en el servicio |
+| Regla | Base de datos | Backend |
+|---|---|---|
+| Precio mayor a 0, existencia no negativa, cantidad mayor a 0 | `CHECK` | Bean Validation en DTO y validación en entidades |
+| Folio único | `UNIQUE` + secuencia | `Pedido.formatearFolio` |
+| Estados válidos | `CHECK` | Enum `EstadoPedido` |
+| Transiciones válidas | | `EstadoPedido.puedeCambiar()` |
+| Sin partidas huérfanas | FK sin `ON DELETE CASCADE`; los pedidos no se borran, se cancelan | |
+| Un producto por pedido | `UNIQUE (PEDIDO_ID, PRODUCTO_ID)` | Validación en `PedidoServiceImpl` (400) |
+| Inventario nunca negativo | `CHECK (EXISTENCIAS >= 0)` como última defensa | `Producto.validarExistenciasSuficientes` |
+| Fecha de cancelación coherente | `CK_PEDIDOS_CANCELACION` | `Pedido.cancelar` |
 
-## 5. Correspondencia con JPA (referencia para la implementación)
+## 5. Correspondencia con JPA
 
 | Tabla | Entidad | Notas |
 |---|---|---|
-| `producto` | `Producto` | `@Version` sobre `version_lock`; `@Id` con `GenerationType.IDENTITY` |
-| `pedido` | `Pedido` | `@Enumerated(EnumType.STRING)` para `estado`; relación `@OneToMany` a `PedidoDetalle` |
-| `pedido_detalle` | `PedidoDetalle` | `subtotal` no se mapea como columna; se calcula en Java (`cantidad × precioUnitario`) |
+| `PRODUCTOS` | `Producto` | `@Version` sobre `VERSION_LOCK`; `ACTIVO` con `BooleanToNumberConverter`; `EXISTENCIAS` en el campo `existencias` |
+| `PEDIDOS` | `Pedido` | `@Version` sobre `VERSION_LOCK`; `ESTADO` con `@Enumerated(EnumType.STRING)`; `@OneToMany` a `PedidoDetalle` |
+| `PEDIDOS_DETALLES` | `PedidoDetalle` | `@ManyToOne` a `Pedido` y `Producto`; `getSubtotal()` calcula `cantidad × precioUnitario` |
+
+Todos los `@Id` usan `GenerationType.IDENTITY` (columnas `GENERATED BY DEFAULT AS IDENTITY`).

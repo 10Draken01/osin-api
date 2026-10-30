@@ -3,8 +3,12 @@ package com.lacomer.osinapi.exceptions;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSourceResolvable;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -48,6 +52,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
 
+    // 409: la base de datos rechazo el dato (nombre duplicado, folio duplicado, FK...)
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ProblemDetail handleIntegridadDatos(DataIntegrityViolationException e) {
+        log.warn("Violacion de integridad de datos: {}", e.getMostSpecificCause().getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "La operacion viola una restriccion de datos (por ejemplo, un registro duplicado).");
+    }
+
+    // 409: otro usuario modifico el mismo registro al mismo tiempo (@Version)
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ProblemDetail handleBloqueoOptimista(ObjectOptimisticLockingFailureException e) {
+        log.warn("Conflicto de concurrencia: {}", e.getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "El registro fue modificado por otro usuario. Recarga la informacion e intenta de nuevo.");
+    }
+
     // ---------- Validaciones (sobrescriben a la clase base) ----------
 
     // 400: falló @Valid en el @RequestBody
@@ -79,6 +99,28 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(
                 HttpStatus.BAD_REQUEST, "Uno o más parámetros no son válidos.");
         pd.setProperty("errores", errores);
+        return handleExceptionInternal(e, pd, headers, status, request);
+    }
+
+    // 400: un parametro no tiene el tipo esperado (por ejemplo estado=INVENTADO o pagina=abc)
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(
+            TypeMismatchException e, @NonNull HttpHeaders headers,
+            @NonNull HttpStatusCode status, @NonNull WebRequest request
+    ) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+                "El valor '" + e.getValue() + "' no es valido para el parametro " + e.getPropertyName());
+        return handleExceptionInternal(e, pd, headers, status, request);
+    }
+
+    // 400: el cuerpo no es un JSON valido o un campo tiene un tipo incorrecto
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException e, @NonNull HttpHeaders headers,
+            @NonNull HttpStatusCode status, @NonNull WebRequest request
+    ) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+                "El cuerpo de la peticion no es un JSON valido.");
         return handleExceptionInternal(e, pd, headers, status, request);
     }
 

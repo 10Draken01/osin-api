@@ -1,4 +1,4 @@
-# OSINAPI — Inicialización de Oracle Database Free
+# 04. Inicialización de Oracle Database Free
 
 Esta guía deja Oracle funcionando en Docker y permite administrar el esquema desde **Oracle SQL Developer**. Los scripts SQL se ejecutan desde SQL Developer; no es necesario copiarlos al contenedor ni crear carpetas dentro de él.
 
@@ -87,29 +87,31 @@ docker logs -f oracle-local
 
 **No uses `docker rm -v` ni elimines el volumen `oracle-data`** si quieres conservar la base de datos.
 
-## 6. Conectarse desde Oracle SQL Developer como SYS
+## 6. Conectarse desde Oracle SQL Developer como administrador
 
 Crea una conexión nueva con estos datos:
 
 | Campo | Valor |
 |---|---|
-| Connection Name | `SYS_LOCAL` |
+| Connection Name | `SYSTEM_LOCAL` |
 | Username | `system` |
 | Password | `Oracle_2026` |
 | Connection Type | `Basic` |
 | Hostname | `localhost` |
 | Port | `1521` |
-| Connection role | `SYSDBA` |
+| Connection role | `Default` |
 | Connection identifier | `Service name` |
 | Service name | `FREEPDB1` |
 
 Pulsa **Test**. Debe indicar `Success`. Después pulsa **Connect**.
 
+> `SYSTEM` tiene permiso para crear usuarios, no necesita el rol `SYSDBA`. También puedes usar el usuario `SYS` con rol `SYSDBA`.
+>
 > Si reutilizas un volumen de una instalación anterior, la contraseña SYS puede ser distinta de la indicada en `ORACLE_PWD`. La variable `ORACLE_PWD` establece la contraseña durante la inicialización inicial; no garantiza que se cambie en una base de datos ya existente.
 
 ## 7. Crear el usuario OSIN
 
-Con la conexión `SYS_LOCAL` abierta, abre un **SQL Worksheet** y ejecuta el contenido de:
+Con la conexión `SYSTEM_LOCAL` abierta, abre un **SQL Worksheet** y ejecuta el contenido de:
 
 `database/oracle/00_crear_usuario.sql`
 
@@ -118,11 +120,14 @@ En SQL Developer, usa **Run Script (F5)**.
 El script ejecuta:
 
 ```sql
-ALTER SESSION SET "_oracle_script" = TRUE;
-CREATE USER osin IDENTIFIED BY osin;
-GRANT ALL PRIVILEGES TO osin;
-commit;
+CREATE USER osin IDENTIFIED BY osin
+    DEFAULT TABLESPACE users
+    QUOTA UNLIMITED ON users;
+
+GRANT CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE SEQUENCE TO osin;
 ```
+
+La contraseña `osin` es un valor de ejemplo para desarrollo local. Se usan permisos mínimos en lugar de `GRANT ALL PRIVILEGES`.
 
 El usuario `OSIN` será propietario de las tablas, índices, secuencia y vista del proyecto.
 
@@ -146,7 +151,7 @@ Crea otra conexión en SQL Developer:
 
 Pulsa **Test** y después **Connect**.
 
-A partir de aquí, ejecuta los scripts restantes usando esta conexión, no la conexión SYS.
+A partir de aquí, ejecuta los scripts restantes usando esta conexión, no la de administrador.
 
 ## 9. Ejecutar los scripts del esquema
 
@@ -163,10 +168,10 @@ Es importante respetar el orden. Ejecuta cada archivo una vez y revisa la pesta�
 Conectado como `OSIN`, abre un Worksheet y ejecuta:
 
 ```sql
-SELECT * FROM producto;
-SELECT * FROM pedido;
-SELECT * FROM pedido_detalle;
-SELECT * FROM vw_pedido_resumen;
+SELECT * FROM PRODUCTOS;
+SELECT * FROM PEDIDOS;
+SELECT * FROM PEDIDOS_DETALLES;
+SELECT * FROM VW_PEDIDO_RESUMEN;
 ```
 
 ## 11. Limpiar el esquema
@@ -179,23 +184,19 @@ Después de limpiarlo, puedes volver a ejecutar `01_schema.sql`, `02_data.sql` y
 
 ## 12. Configuración para Spring Boot
 
-Si la aplicación se ejecuta desde Windows o WSL y Oracle publica el puerto `1521`:
+Si la aplicación se ejecuta desde Windows o WSL y Oracle publica el puerto `1521`, no hay que cambiar nada: `application.properties` ya usa estos valores por defecto.
 
-```properties
-spring.datasource.url=jdbc:oracle:thin:@//localhost:1521/FREEPDB1
-spring.datasource.username=osin
-spring.datasource.password=osin
-spring.jpa.hibernate.ddl-auto=validate
-```
-Para el env usar el ejemplo .env.example
+Para usar otros valores, copia `.env.example` como `.env` en la raíz del proyecto (Spring Boot lo lee al arrancar) o define las variables de entorno:
+
 ```properties
 PORT=8080
 DB_URL=jdbc:oracle:thin:@//localhost:1521/FREEPDB1
 DB_USER=osin
 DB_PASS=osin
+CORS_ORIGENES=http://localhost:4200
 ```
 
-El esquema se administra mediante los scripts SQL. Hibernate debe validar el esquema, no crearlo.
+El esquema se administra con los scripts SQL. Hibernate solo lo valida al arrancar (`spring.jpa.hibernate.ddl-auto=validate`): si falta una tabla o una columna, la aplicación no inicia y el log indica cuál.
 
 ## 13. Errores frecuentes
 
@@ -215,6 +216,10 @@ El usuario ya existe o hay un conflicto de nombre. No vuelvas a ejecutar el scri
 
 Ya existe un objeto con ese nombre en el esquema. Si quieres reconstruir el esquema, ejecuta primero `99_limpiar.sql` como `OSIN` y después vuelve a ejecutar los scripts en orden.
 
+### `Schema-validation: missing table` o `missing column` al iniciar la aplicación
+
+El esquema de Oracle no coincide con las entidades, normalmente porque se creó con otra versión de `01_schema.sql`. Ejecuta `99_limpiar.sql` como `OSIN` y después `01_schema.sql` y `02_data.sql`.
+
 ### No aparecen las tablas en SQL Developer
 
 Haz clic derecho sobre **Tables** y selecciona **Refresh**. Confirma que estás conectado como `OSIN`, no como `SYS`.
@@ -226,7 +231,7 @@ Haz clic derecho sobre **Tables** y selecciona **Refresh**. Confirma que estás 
 1. Descargar la imagen.
 2. Crear el contenedor una sola vez.
 3. Esperar a `DATABASE IS READY TO USE!`.
-4. Conectar SQL Developer como `SYS` con rol `SYSDBA`.
+4. Conectar SQL Developer como `SYSTEM`.
 5. Ejecutar `00_crear_usuario.sql`.
 6. Conectar SQL Developer como `OSIN`.
 7. Ejecutar `01_schema.sql`.

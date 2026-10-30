@@ -1,109 +1,109 @@
-# Sistema de gestión de pedidos e inventario
+# OSINAPI: sistema de gestión de pedidos e inventario
 
-Aplicación web para registrar pedidos y administrar la disponibilidad de productos de un pequeño comercio. Es la solución al examen técnico: **Angular** (frontend), **Java 17 + Spring Boot 4 + Maven** (backend) y base de datos relacional (**Oracle** como motor oficial, **H2** como perfil de desarrollo).
+API REST para registrar pedidos y administrar la disponibilidad de productos de un pequeño comercio (examen técnico). Java 17, Spring Boot 4, Maven, Oracle Database Free.
 
-> Estado: **fase de levantamiento de requerimientos y diseño de datos**. El código aún no existe; los comandos de compilación y ejecución de este README son el objetivo y se validarán al implementar.
+> Estado: **backend y base de datos corregidos y con pruebas. El frontend Angular está pendiente.**
 
-## Documentación (orden de lectura)
+## Documentación
 
 | # | Documento | Contenido |
 |---|---|---|
-| 1 | [Stack tecnológico](docs/01-stack-tecnologico.md) | Versiones, dependencias, perfiles, puertos, variables de entorno y riesgos |
-| 2 | [Requerimientos](docs/02-requerimientos.md) | Casos de uso, requerimientos funcionales y no funcionales, restricciones, supuestos, escenarios de aceptación |
-| 3 | [Entidades y normalización](docs/03-entidades-y-normalizacion.md) | Tablas, tipos, restricciones y análisis 1FN, 2FN y 3FN |
-| 4 | [Inicialización de Oracle](docs/04-inicializacion-oracle.md) | Docker en WSL/Ubuntu, conexión, usuario, scripts SQL y verificación |
+| 1 | [Stack tecnológico](docs/01-stack-tecnologico.md) | Versiones, dependencias, perfiles |
+| 2 | [Requerimientos](docs/02-requerimientos.md) | Casos de uso, requerimientos, escenarios A–F |
+| 3 | [Entidades y normalización](docs/03-entidades-y-normalizacion.md) | Tablas, 1FN–3FN |
+| 4 | [Inicialización de Oracle](docs/04-inicializacion-oracle.md) | Docker, SQL Developer y scripts |
+| 5 | [Revisión y correcciones](docs/05-revision-y-correcciones.md) | Hallazgos, cambios y pendientes |
+| 6 | [Pruebas](docs/06-pruebas.md) | Pruebas automáticas y plan manual |
 
-Scripts SQL listos para ejecutar: [`database/oracle/`](database/oracle/).
+## Reglas de negocio implementadas
 
-## Decisiones de diseño (resumen)
-
-| Tema | Decisión |
+| Tema | Regla |
 |---|---|
-| Motor oficial | Oracle Database Free (contenedor Docker, imagen `free:latest-lite`) |
-| Perfil de desarrollo | H2 (sin instalar nada); no sustituye a Oracle en la entrega |
-| Estados del pedido | `BORRADOR`, `CONFIRMADO`, `CANCELADO` |
-| Descuento de inventario | Al **confirmar** el pedido |
-| Cancelación | Repone stock solo si el pedido estaba `CONFIRMADO` (idempotente) |
-| Importes | Se calculan en el backend; no se almacenan `subtotal` ni `total` (3FN) |
-| Concurrencia | Bloqueo pesimista de productos, siempre en orden por `id` |
+| Estados | `BORRADOR → CONFIRMADO → CANCELADO` (y `COMPLETADO`, estado final definido en el modelo) |
+| Crear pedido | Genera un `BORRADOR` con folio único (`PED-000001`). Los importes los calcula el servidor. **No descuenta inventario** |
+| Confirmar | En una transacción: bloquea pedido y productos, valida el stock de **todas** las partidas y descuenta. Si falta stock: 409 y nada cambia |
+| Editar | Solo en `BORRADOR`: reemplaza las partidas y todas toman el precio vigente del catálogo. No mueve inventario. En otro estado: 409 |
+| Cancelar | Solo desde `CONFIRMADO`; repone el inventario exactamente una vez. Cancelar de nuevo: 409 |
+| Concurrencia | Bloqueo pesimista (`SELECT ... FOR UPDATE`) ordenado por id + `@Version` en `Producto` |
 
-## Estructura propuesta del repositorio
+## Endpoints
 
+Documentación interactiva con la aplicación en ejecución: `http://localhost:8080/swagger-ui.html` (OpenAPI en `/v3/api-docs`).
+
+| Método | Ruta | Descripción | Respuestas |
+|---|---|---|---|
+| GET | `/api/productos` | Listar productos (paginado) | 200 |
+| GET | `/api/productos/activos` | Listar productos activos | 200 |
+| GET | `/api/productos/{id}` | Detalle de producto | 200, 404 |
+| POST | `/api/productos` | Crear producto | 201, 400, 409 |
+| PUT | `/api/productos/{id}` | Actualizar producto (incluye existencia) | 200, 400, 404, 409 |
+| PATCH | `/api/productos/{id}/desactivar` | Baja lógica | 204, 404, 409 |
+| PATCH | `/api/productos/{id}/activar` | Reactivar | 204, 404, 409 |
+| POST | `/api/pedidos` | Crear pedido (`BORRADOR`) | 201, 400, 404 |
+| PUT | `/api/pedidos/{id}` | Actualizar partidas de un `BORRADOR` (precios vigentes) | 200, 400, 404, 409 |
+| GET | `/api/pedidos?estado=&folio=` | Listar con filtros (paginado) | 200, 400 |
+| GET | `/api/pedidos/{id}` | Detalle con partidas | 200, 404 |
+| POST | `/api/pedidos/{id}/confirmar` | Confirmar y descontar inventario | 200, 404, 409 |
+| POST | `/api/pedidos/{id}/cancelar` | Cancelar y reponer inventario | 200, 404, 409 |
+| POST | `/api/pedidos/{id}/completar` | Completar (solo desde `CONFIRMADO`) | 200, 404, 409 |
+
+Ejemplo de cuerpo para crear un pedido:
+
+```json
+{ "productos": [ { "id": 5, "cantidad": 2 }, { "id": 3, "cantidad": 1 } ] }
 ```
-.
-├── README.md
-├── docs/                  # esta documentación + capturas/video
-├── database/
-│   └── oracle/            # 00_crear_usuario.sql, 01_schema.sql, 02_data.sql, ...
-├── backend/               # Spring Boot (Maven)
-└── frontend/              # Angular 19
-```
 
-## Versiones utilizadas
-
-| Componente | Versión |
-|---|---|
-| JDK | 17 |
-| Spring Boot | 4.0.x |
-| Maven | 3.9+ (se usa el wrapper `mvnw`) |
-| Angular / Angular Material | 19.x |
-| Node.js | 20 LTS (>= 20.11.1) o 22 LTS |
-| Oracle Database Free | imagen `container-registry.oracle.com/database/free:latest-lite` |
-
-Detalle completo en [docs/01-stack-tecnologico.md](docs/01-stack-tecnologico.md).
+Errores: formato `ProblemDetail` (RFC 9457) con `status` y `detail`; en validaciones, además `errores`. Sin trazas.
 
 ## Requisitos previos
 
-- JDK 17 y acceso a Maven Central.
-- Node.js 20+ y npm.
-- Docker (Docker Desktop con WSL2, o Docker Engine en Ubuntu) para Oracle.
-- Git.
+- JDK 17 y Maven 3.9+ (acceso a Maven Central).
+- Docker (WSL2 o Ubuntu) y Oracle SQL Developer, para Oracle.
+- Node.js 20+ (cuando exista el frontend).
 
 ## Variables de entorno
 
-Valores de ejemplo no sensibles. Nunca se versionan contraseñas reales.
+Valores de ejemplo en [`.env.example`](.env.example). Spring Boot no lee `.env` por sí solo: cárgalas como variables de entorno o configúralas en el IDE.
 
 | Variable | Ejemplo | Uso |
 |---|---|---|
-| `SPRING_PROFILES_ACTIVE` | `h2` o `oracle` | Selecciona la base de datos |
-| `DB_URL` | `jdbc:oracle:thin:@//localhost:1521/FREEPDB1` | URL JDBC (perfil `oracle`) |
-| `DB_USER` | `pedidos` | Usuario de aplicación |
-| `DB_PASSWORD` | `Pedidos_2026` | Contraseña del usuario de aplicación (ejemplo) |
-| `SERVER_PORT` | `8080` | Puerto del backend |
+| `PORT` | `8080` | Puerto del backend (opcional, por defecto 8080) |
+| `DB_URL` | `jdbc:oracle:thin:@//localhost:1521/FREEPDB1` | URL JDBC (opcional, ese es el valor por defecto) |
+| `DB_USER` | `osin` | Usuario del esquema |
+| `DB_PASS` | `osin` | Contraseña de ejemplo para desarrollo local |
 
-## Compilación y ejecución (objetivo, pendiente de validar)
+Bash (Linux/WSL): `set -a; source .env; set +a`
+PowerShell: `Get-Content .env | ForEach-Object { if ($_ -match '^\s*([^#=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2]) } }`
 
-```bash
-# Base de datos Oracle: ver docs/04-inicializacion-oracle.md
+## Base de datos (Oracle)
 
-# Backend (perfil H2, sin dependencias externas)
-cd backend
-./mvnw clean package
-./mvnw spring-boot:run
+Pasos completos en [docs/04-inicializacion-oracle.md](docs/04-inicializacion-oracle.md). Resumen:
 
-# Backend contra Oracle
-SPRING_PROFILES_ACTIVE=oracle DB_USER=pedidos DB_PASSWORD=Pedidos_2026 ./mvnw spring-boot:run
+1. `docker pull container-registry.oracle.com/database/free:latest-lite` y crear el contenedor `oracle-local`.
+2. Esperar `DATABASE IS READY TO USE!` en `docker logs -f oracle-local`.
+3. En SQL Developer ejecutar, en este orden:
+   `00_crear_usuario.sql` (como SYS en `FREEPDB1`), luego `01_schema.sql`, `02_data.sql` y `03_verificacion.sql` (como `OSIN`).
 
-# Frontend
-cd frontend
-npm install
-npm start            # http://localhost:4200
-```
+Los scripts están en [`database/oracle/`](database/oracle/). `99_limpiar.sql` borra los objetos para empezar de cero.
 
-## Pruebas (objetivo)
+## Compilar y ejecutar
 
 ```bash
-cd backend  && ./mvnw test
-cd frontend && npm test
+mvn clean package -DskipTests    # compilar
+mvn spring-boot:run              # ejecutar (con las variables de entorno cargadas y Oracle listo)
 ```
 
-## Documentación de la API
+## Pruebas
 
-Con el backend en ejecución: `http://localhost:8080/swagger-ui.html` (OpenAPI en `/v3/api-docs`).
+```bash
+mvn test
+```
+
+No necesitan Oracle ni variables de entorno (usan H2 en memoria con el perfil `test`). Detalle y plan manual (incluye el escenario F, reinicio de la aplicación) en [docs/06-pruebas.md](docs/06-pruebas.md).
 
 ## Pendientes antes de la entrega
 
-- [ ] Implementar backend y frontend.
-- [ ] Probar los escenarios A–F (ver [requerimientos](docs/02-requerimientos.md#7-escenarios-de-aceptación)).
-- [ ] Validar este README y los scripts en un clon limpio del repositorio.
-- [ ] Capturas o video de los escenarios.
+- [x] Frontend Angular (proyecto aparte `osin-front`).
+- [ ] Decidir si se conserva el estado `COMPLETADO` (ver docs/05).
+- [ ] Ejecutar `mvn test` y los scripts SQL en un clon limpio y registrar el resultado.
+- [ ] Video o capturas de los escenarios A–F.

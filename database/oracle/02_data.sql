@@ -1,93 +1,86 @@
 -- 02_data.sql
 -- Ejecutar conectado como OSIN en FREEPDB1.
+-- Las existencias ya consideran lo descontado por PED-000002 (CONFIRMADO).
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Arroz 1 kg', 'Arroz blanco de grano largo', 24.90, 100, 1);
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Frijol 1 kg', 'Frijol negro', 32.00, 80, 1);
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Aceite 1 L', 'Aceite vegetal', 45.00, 60, 1);
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Azucar 1 kg', 'Azucar estandar', 28.00, 90, 1);
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Leche 1 L', 'Leche entera', 27.00, 120, 1);
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Cafe 250 g', 'Cafe molido', 68.00, 40, 1);
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Pasta 200 g', 'Pasta de trigo', 15.00, 150, 1);
 
-INSERT INTO producto (nombre, descripcion, precio_unitario, existencia, activo)
+INSERT INTO PRODUCTOS (NOMBRE, DESCRIPCION, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO)
 VALUES ('Galletas', 'Galletas de vainilla', 19.90, 70, 1);
 
-INSERT INTO pedido (folio, estado)
+INSERT INTO PEDIDOS (FOLIO, ESTADO)
 VALUES ('PED-000001', 'BORRADOR');
 
-INSERT INTO pedido (folio, estado)
+INSERT INTO PEDIDOS (FOLIO, ESTADO)
 VALUES ('PED-000002', 'CONFIRMADO');
 
-INSERT INTO pedido (
-    folio,
-    estado,
-    fecha_cancelacion
-)
-VALUES (
-    'PED-000003',
-    'CANCELADO',
-    SYSTIMESTAMP
-);
+INSERT INTO PEDIDOS (FOLIO, ESTADO, FECHA_CANCELACION)
+VALUES ('PED-000003', 'CANCELADO', SYSTIMESTAMP);
 
--- PED-000001 = 87.90
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 1, 24.90
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000001' AND pr.nombre = 'Arroz 1 kg';
+-- PED-000001 = 101.90
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 1, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000001' AND PR.NOMBRE = 'Arroz 1 kg';
 
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 1, 32.00
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000001' AND pr.nombre = 'Frijol 1 kg';
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 1, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000001' AND PR.NOMBRE = 'Frijol 1 kg';
 
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 1, 31.00
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000001' AND pr.nombre = 'Aceite 1 L';
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 1, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000001' AND PR.NOMBRE = 'Aceite 1 L';
 
--- PED-000002 = 242.00
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 2, 45.00
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000002' AND pr.nombre = 'Aceite 1 L';
+-- PED-000002 = 222.00
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 2, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000002' AND PR.NOMBRE = 'Aceite 1 L';
 
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 1, 68.00
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000002' AND pr.nombre = 'Cafe 250 g';
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 1, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000002' AND PR.NOMBRE = 'Cafe 250 g';
 
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 2, 42.00
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000002' AND pr.nombre = 'Frijol 1 kg';
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 2, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000002' AND PR.NOMBRE = 'Frijol 1 kg';
 
--- PED-000003 = 140.90
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 1, 68.00
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000003' AND pr.nombre = 'Cafe 250 g';
+-- PED-000003 = 140.00
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 1, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000003' AND PR.NOMBRE = 'Cafe 250 g';
 
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 1, 45.00
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000003' AND pr.nombre = 'Aceite 1 L';
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 1, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000003' AND PR.NOMBRE = 'Aceite 1 L';
 
-INSERT INTO pedido_detalle (pedido_id, producto_id, cantidad, precio_unitario)
-SELECT p.id, pr.id, 1, 27.90
-FROM pedido p CROSS JOIN producto pr
-WHERE p.folio = 'PED-000003' AND pr.nombre = 'Leche 1 L';
+INSERT INTO PEDIDOS_DETALLES (PEDIDO_ID, PRODUCTO_ID, CANTIDAD, PRECIO_UNITARIO)
+SELECT P.ID, PR.ID, 1, PR.PRECIO_UNITARIO
+FROM PEDIDOS P CROSS JOIN PRODUCTOS PR
+WHERE P.FOLIO = 'PED-000003' AND PR.NOMBRE = 'Leche 1 L';
 
 COMMIT;

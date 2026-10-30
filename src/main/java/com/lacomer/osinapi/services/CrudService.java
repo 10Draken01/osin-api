@@ -1,10 +1,11 @@
 package com.lacomer.osinapi.services;
 
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface CrudService<RQ, RS>{
 
-    List<RS> listar();
+    Page<RS> listar(Pageable pageable);
 
     RS obtenerPorId(Long id);
 
