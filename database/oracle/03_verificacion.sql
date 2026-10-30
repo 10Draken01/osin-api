@@ -2,41 +2,41 @@
 -- Ejecutar conectado como OSIN en FREEPDB1.
 
 PROMPT === PRODUCTOS ===
-SELECT id, nombre, precio_unitario, existencia, activo
-FROM producto
-ORDER BY id;
+SELECT ID, NOMBRE, PRECIO_UNITARIO, EXISTENCIAS, ACTIVO
+FROM PRODUCTOS
+ORDER BY ID;
 
 PROMPT === RESUMEN DE PEDIDOS ===
-SELECT folio, estado, total, numero_partidas
-FROM vw_pedido_resumen
-ORDER BY id;
+SELECT FOLIO, ESTADO, TOTAL, NUMERO_PARTIDAS
+FROM VW_PEDIDO_RESUMEN
+ORDER BY ID;
 
 PROMPT === DETALLE DE PEDIDOS ===
 SELECT
-    p.folio,
-    pr.nombre AS producto,
-    d.cantidad,
-    d.precio_unitario,
-    d.subtotal
-FROM pedido_detalle d
-JOIN pedido p ON p.id = d.pedido_id
-JOIN producto pr ON pr.id = d.producto_id
-ORDER BY p.id, d.id;
+    P.FOLIO,
+    PR.NOMBRE AS PRODUCTO,
+    D.CANTIDAD,
+    D.PRECIO_UNITARIO,
+    D.CANTIDAD * D.PRECIO_UNITARIO AS SUBTOTAL
+FROM PEDIDOS_DETALLES D
+JOIN PEDIDOS P ON P.ID = D.PEDIDO_ID
+JOIN PRODUCTOS PR ON PR.ID = D.PRODUCTO_ID
+ORDER BY P.ID, D.ID;
 
 PROMPT === OBJETOS DEL ESQUEMA ===
-SELECT object_type, object_name, status
-FROM user_objects
-WHERE object_name IN (
-    'PRODUCTO',
-    'PEDIDO',
-    'PEDIDO_DETALLE',
+SELECT OBJECT_TYPE, OBJECT_NAME, STATUS
+FROM USER_OBJECTS
+WHERE OBJECT_NAME IN (
+    'PRODUCTOS',
+    'PEDIDOS',
+    'PEDIDOS_DETALLES',
     'VW_PEDIDO_RESUMEN',
-    'SEQ_PEDIDO_FOLIO'
+    'SEQ_PEDIDOS_FOLIO'
 )
-ORDER BY object_type, object_name;
+ORDER BY OBJECT_TYPE, OBJECT_NAME;
 
 PROMPT === RESTRICCIONES ===
-SELECT table_name, constraint_name, constraint_type, status
-FROM user_constraints
-WHERE table_name IN ('PRODUCTO', 'PEDIDO', 'PEDIDO_DETALLE')
-ORDER BY table_name, constraint_name;
+SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE, STATUS
+FROM USER_CONSTRAINTS
+WHERE TABLE_NAME IN ('PRODUCTOS', 'PEDIDOS', 'PEDIDOS_DETALLES')
+ORDER BY TABLE_NAME, CONSTRAINT_NAME;

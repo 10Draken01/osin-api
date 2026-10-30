@@ -1,9 +1,9 @@
 -- 99_limpiar.sql
 -- Ejecutar conectado como OSIN en FREEPDB1.
--- Elimina los objetos del esquema, pero NO elimina el usuario OSIN.
+-- Elimina los objetos del esquema, pero no elimina el usuario OSIN.
 
-DROP VIEW vw_pedido_resumen;
-DROP TABLE pedido_detalle CASCADE CONSTRAINTS PURGE;
-DROP TABLE pedido CASCADE CONSTRAINTS PURGE;
-DROP TABLE producto CASCADE CONSTRAINTS PURGE;
-DROP SEQUENCE seq_pedido_folio;
+DROP VIEW VW_PEDIDO_RESUMEN;
+DROP TABLE PEDIDOS_DETALLES CASCADE CONSTRAINTS PURGE;
+DROP TABLE PEDIDOS CASCADE CONSTRAINTS PURGE;
+DROP TABLE PRODUCTOS CASCADE CONSTRAINTS PURGE;
+DROP SEQUENCE SEQ_PEDIDOS_FOLIO;

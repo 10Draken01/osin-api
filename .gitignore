@@ -12,8 +12,12 @@ target/
 .settings
 .springBeans
 .sts4-cache
+
+# Variables de entorno reales (solo se versiona .env.example)
 .env
-data
+
+# H2 en archivo (si se usa)
+data/
 
 ### IntelliJ IDEA ###
 .idea
