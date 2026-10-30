@@ -120,14 +120,18 @@ En SQL Developer, usa **Run Script (F5)**.
 El script ejecuta:
 
 ```sql
-CREATE USER osin IDENTIFIED BY osin
-    DEFAULT TABLESPACE users
-    QUOTA UNLIMITED ON users;
-
-GRANT CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE SEQUENCE TO osin;
+alter session set "_oracle_script"=true;
+create user osin identified by osin;
+GRANT ALL PRIVILEGES TO osin;
 ```
 
-La contraseña `osin` es un valor de ejemplo para desarrollo local. Se usan permisos mínimos en lugar de `GRANT ALL PRIVILEGES`.
+| Sentencia | Para qué |
+|---|---|
+| `alter session set "_oracle_script"=true` | Permite crear el usuario con un nombre sin el prefijo `C##` aunque la sesión haya quedado en el contenedor raíz (`CDB$ROOT`) en lugar de `FREEPDB1` |
+| `create user osin identified by osin` | Crea el usuario dueño del esquema. La contraseña `osin` es un valor de ejemplo para desarrollo local |
+| `GRANT ALL PRIVILEGES TO osin` | Le da todos los permisos del sistema, incluido `UNLIMITED TABLESPACE`, para que pueda crear y llenar tablas sin configurar cuotas |
+
+> `GRANT ALL PRIVILEGES` y `_oracle_script` son adecuados solo para desarrollo local. En un servidor compartido o de producción se otorgan únicamente los permisos necesarios (`CREATE SESSION`, `CREATE TABLE`, `CREATE VIEW`, `CREATE SEQUENCE` y una cuota en el tablespace).
 
 El usuario `OSIN` será propietario de las tablas, índices, secuencia y vista del proyecto.
 
