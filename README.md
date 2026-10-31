@@ -1,8 +1,8 @@
 # OSINAPI: sistema de gestión de pedidos e inventario
 
-## IMPORTANTE MIRAR EL VIDEO PARA ENTENDER MEJOR
+## IMPORTANTE MIRAR EL VIDEO PARA ENTENDER MEJOR(Corregido)
 ```
-https://youtu.be/f1pAgcBTV0k
+[https://youtu.be/f1pAgcBTV0k](https://youtu.be/XeBDBUWzIG0)
 ```
 
 API REST para registrar pedidos y administrar la disponibilidad de productos de un pequeño comercio (examen técnico). Java 17, Spring Boot 4, Maven y Oracle Database Free.
